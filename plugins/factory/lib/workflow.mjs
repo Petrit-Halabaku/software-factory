@@ -33,22 +33,33 @@ export function preflight(ctx, { worktree } = {}) {
   const main = checkExclusions(ctx.repoDir, { links });
   const problems = [...main.problems];
   if (worktree && existsSync(worktree)) problems.push(...checkExclusions(worktree, { links }).problems.map((p) => `worktree: ${p}`));
+  // Warnings never block a run; the orchestrator passes them on.
+  const warnings = links.filter((l) => !existsSync(path.join(ctx.repoDir, l))).map((l) => `worktree link ${l} does not exist in the repository`);
   const rules = factoryPaths(ctx.factoryDir).houseRules;
   if (!existsSync(rules)) problems.push(`${rules} is missing; run /factory init`);
-  else if (/<!-- FILL\b/.test(readFileSync(rules, 'utf8'))) problems.push(`${rules} still has FILL sections; finish /factory init`);
-  return { ok: problems.length === 0, problems, excludeFile: main.excludeFile, checked: main.checks.length };
+  else {
+    const text = readFileSync(rules, 'utf8');
+    if (/<!-- FILL\b/.test(text)) problems.push(`${rules} still has FILL sections; finish /factory init`);
+    for (const m of text.matchAll(/<!-- UNCONFIRMED: ([^>]*?) -->/g)) warnings.push(`house rules, not confirmed by the human: ${m[1].trim()}`);
+  }
+  return { ok: problems.length === 0, problems, warnings, excludeFile: main.excludeFile, checked: main.checks.length };
 }
 
 // Set the factory up in a repository: exclusions first, then the state
 // directory, a config.json for overrides and the house-rules template. Never
-// overwrites a file that exists.
+// overwrites a file that exists. A new config.json links only the default
+// dependency directories that exist and are not tracked.
 export function initRepo(ctx, { templateFile }) {
   const paths = factoryPaths(ctx.factoryDir);
-  const exclusions = ensureExclusions(ctx.repoDir, { links: ctx.config.worktree.links });
+  const fresh = !existsSync(paths.config);
+  const links = fresh
+    ? ctx.config.worktree.links.filter((l) => existsSync(path.join(ctx.repoDir, l)) && !git(ctx.repoDir, ['ls-files', '--', l]).stdout.trim())
+    : ctx.config.worktree.links;
+  const exclusions = ensureExclusions(ctx.repoDir, { links });
   mkdirSync(paths.factoryDir, { recursive: true });
   const created = [];
-  if (!existsSync(paths.config)) {
-    writeJsonAtomic(paths.config, { worktree: { links: ctx.config.worktree.links } });
+  if (fresh) {
+    writeJsonAtomic(paths.config, { worktree: { links } });
     created.push(paths.config);
   }
   if (!existsSync(paths.houseRules)) {
@@ -57,8 +68,8 @@ export function initRepo(ctx, { templateFile }) {
   }
   const rulesText = readFileSync(paths.houseRules, 'utf8');
   const fill = [...rulesText.matchAll(/<!-- FILL: ([^>]*?) -->/g)].map((m) => m[1].trim());
-  const check = checkExclusions(ctx.repoDir, { links: ctx.config.worktree.links });
-  return { ok: check.ok, excludeFile: check.excludeFile, addedPatterns: exclusions.added, created, houseRules: paths.houseRules, fill, problems: check.problems };
+  const check = checkExclusions(ctx.repoDir, { links });
+  return { ok: check.ok, excludeFile: check.excludeFile, addedPatterns: exclusions.added, created, links, houseRules: paths.houseRules, fill, problems: check.problems };
 }
 
 function requirePreflight(ctx, worktree) {

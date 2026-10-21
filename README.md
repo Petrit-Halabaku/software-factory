@@ -25,6 +25,26 @@ Not an official Anthropic project.
 
 ## Install
 
+### One command
+
+From the repository you want to use it in:
+
+```sh
+bash <(curl -fsSL https://raw.githubusercontent.com/Petrit-Halabaku/software-factory/main/install.sh)
+```
+
+The script adds the four marketplaces, installs or enables the factory and its six dependencies, and runs the factory's plugin check. It then sets the repository up: exclusions, `factory/`, and a Claude Code session that writes `factory/house-rules.md` with you. It is safe to run again; whatever is already there is kept.
+
+| Option | Effect |
+|---|---|
+| `--repo PATH` | set up another repository instead of the current directory |
+| `--headless` | write the house rules without an interactive session; anything it could not confirm with you is marked `UNCONFIRMED` |
+| `--install-only` | install the plugins and stop |
+
+It installs at user scope into the Claude Code profile in use (`CLAUDE_CONFIG_DIR`, or `~/.claude`), and needs `claude`, `git` and Node.js 20 or later.
+
+### By hand
+
 The factory depends on six other plugins. Claude Code installs them with it, as long as their marketplaces are added first:
 
 ```sh
@@ -35,7 +55,7 @@ claude plugin marketplace add Petrit-Halabaku/software-factory
 claude plugin install factory@software-factory
 ```
 
-Then run `/reload-plugins`, or start a new Claude Code session.
+Then run `/reload-plugins`, or start a new Claude Code session, and continue with [Set up a repository](#set-up-a-repository).
 
 | Dependency | Used for |
 |---|---|

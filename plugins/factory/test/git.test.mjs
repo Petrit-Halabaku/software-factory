@@ -3,7 +3,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import * as wf from '../lib/workflow.mjs';
 import { checkExclusions } from '../lib/exclude.mjs';
@@ -79,6 +79,26 @@ test('init: adds the exclusion block once, keeps what was there, never overwrite
   rmSync(path.join(r.factoryDir, 'house-rules.md'));
   pf = wf.preflight(r.ctx);
   assert.ok(pf.problems.some((p) => p.includes('run /factory init')));
+});
+
+test('init: a new config links only dependency directories that exist and are untracked; preflight warns, never blocks', (t) => {
+  const r = makeRepo({ humanChanges: false });
+  t.after(r.cleanup);
+  rmSync(path.join(r.factoryDir, 'config.json'));
+  write(path.join(r.repo, 'vendor/lib.js'), 'x');
+  g(r.repo, 'add', 'vendor/lib.js');
+  g(r.repo, 'commit', '-q', '-m', 'vendor');
+  const ctx = { ...r.ctx, config: { ...r.ctx.config, worktree: { links: ['node_modules', 'missing_modules', 'vendor'] } } };
+  const init = wf.initRepo(ctx, { templateFile: path.join(r.factoryDir, 'house-rules.md') });
+  assert.deepEqual(init.links, ['node_modules'], 'missing and tracked directories are left out');
+  assert.deepEqual(JSON.parse(read(path.join(r.factoryDir, 'config.json'))).worktree.links, ['node_modules']);
+
+  writeFileSync(path.join(r.factoryDir, 'house-rules.md'), '# Rules\n\n<!-- UNCONFIRMED: no protected paths found -->\n');
+  appendFileSync(path.join(r.repo, '.git/info/exclude'), '/missing_modules\n');
+  const pf = wf.preflight({ ...ctx, config: { ...ctx.config, worktree: { links: ['node_modules', 'missing_modules'] } } });
+  assert.equal(pf.ok, true, pf.problems.join('\n'));
+  assert.ok(pf.warnings.some((w) => w.includes('missing_modules does not exist')));
+  assert.ok(pf.warnings.some((w) => w.includes('not confirmed by the human: no protected paths found')));
 });
 
 test('a full run: rounds committed in the worktree, merge-back unstaged, index and HEAD untouched, human changes kept', (t) => {

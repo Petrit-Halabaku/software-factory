@@ -1,6 +1,6 @@
 {
   "name": "factory",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A local, visual software factory: /factory turns a feature request into a spec, an isolated-worktree build, four parallel reviews, an approval and an unstaged merge-back, with a live dashboard, token monitoring and an artifact explorer.",
   "author": { "name": "Petrit Halabaku", "url": "https://github.com/Petrit-Halabaku" },
   "homepage": "https://github.com/Petrit-Halabaku/software-factory",

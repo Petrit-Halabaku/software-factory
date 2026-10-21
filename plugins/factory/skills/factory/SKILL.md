@@ -46,10 +46,10 @@ The agents preload their own skills, and the spec writer and code reviewer spawn
 
 1. `fac init`. It adds the factory block to `.git/info/exclude` (never `.gitignore`), creates `factory/`, a `factory/config.json` for overrides and `factory/house-rules.md` from the template, and never overwrites a file that exists. It returns `addedPatterns`, `created`, the `fill` sections still to write, and `problems`. If `ok` is false, show the problems and stop.
 2. [Plugin check](#plugin-check).
-3. If `fill` is not empty, inspect the repository and write each FILL section of `factory/house-rules.md` with the Edit tool, removing its marker: languages, frameworks and their versions, architecture and main directories, package manager, test and lint commands (how to run one file and the whole suite), formatter, UI kit and icons, data layer and tenancy, auth helpers, conventions, `CLAUDE.md` or contributing rules, existing dev commands. Use real paths, versions and commands only; never invent one. Ask the human (AskUserQuestion) only for what the repository cannot tell you: paths that must never be changed (payments, migrations, generated code), and commands that must never run (a dev server or build that shares output with theirs).
-4. Set `worktree.links` in `factory/config.json` to the dependency directories a worktree needs (for example `["node_modules", "apps/web/node_modules"]`; only directories that exist and are not tracked). If you changed it, run `fac init` again so their exclusion patterns are added.
+3. If `fill` is not empty, inspect the repository and write each FILL section of `factory/house-rules.md` with the Edit tool, removing its marker: languages, frameworks and their versions, architecture and main directories, package manager, test and lint commands (how to run one file and the whole suite), formatter, UI kit and icons, data layer and tenancy, auth helpers, conventions, `CLAUDE.md` or contributing rules, existing dev commands. Use real paths, versions and commands only; never invent one. Ask the human (AskUserQuestion) only for what the repository cannot tell you: paths that must never be changed (payments, migrations, generated code), and commands that must never run (a dev server or build that shares output with theirs). If you cannot ask (no AskUserQuestion, as in a headless run), write what the repository shows and add `<!-- UNCONFIRMED: <what still needs the human> -->` to that section; `fac preflight` then reports it as a warning on every run until the human confirms and the marker is removed.
+4. `fac init` set `worktree.links` (in `factory/config.json`) to the default dependency directories that exist and are untracked; `links` in its output shows them. Add any others a worktree needs (for example `"apps/web/node_modules"`), then run `fac init` again so their exclusion patterns are added.
 5. `fac preflight` must return `ok: true`.
-6. Report: the exclusion patterns added, the files created, a three-line summary of the house rules, the plugin check result, and "Run `/factory <feature request>` to start a run." If plugins were installed, say that `/reload-plugins` (or a new session) comes first.
+6. Report: the exclusion patterns added, the files created, the worktree links, a three-line summary of the house rules, every UNCONFIRMED item as a question for the human, the plugin check result, and "Run `/factory <feature request>` to start a run." If plugins were installed, say that `/reload-plugins` (or a new session) comes first.
 
 ## Plugin check
 
@@ -62,7 +62,7 @@ The agents preload their own skills, and the spec writer and code reviewer spawn
 
 ### 1. Start
 
-1. `fac preflight`. If `ok` is false, show the problems and stop: Git exclusions must hold before any Git operation. A missing `factory/house-rules.md` or one with FILL markers left means the repository is not set up: tell the human to run `/factory init`.
+1. `fac preflight`. If `ok` is false, show the problems and stop: Git exclusions must hold before any Git operation. A missing `factory/house-rules.md` or one with FILL markers left means the repository is not set up: tell the human to run `/factory init`. `warnings` never stop the run; tell the human each one in a line.
 2. [Plugin check](#plugin-check).
 3. Write the request, verbatim, to `factory/.cache/request.txt` with the Write tool.
 4. `fac start --title "<≤8 words>" --request-file factory/.cache/request.txt --model <your model id>`.
