@@ -1,0 +1,16 @@
+{
+  "name": "software-factory",
+  "owner": { "name": "Petrit Halabaku", "url": "https://github.com/Petrit-Halabaku" },
+  "metadata": {
+    "description": "A Claude Code software factory: spec, build, parallel reviews, approval and merge-back with a live dashboard."
+  },
+  "allowCrossMarketplaceDependenciesOn": ["claude-plugins-official", "karpathy-skills", "understand-anything"],
+  "plugins": [
+    {
+      "name": "factory",
+      "source": "./plugins/factory",
+      "description": "/factory turns a feature request into a spec, an isolated-worktree build, four parallel reviews, an approval and an unstaged merge-back, with a live dashboard.",
+      "category": "development"
+    }
+  ]
+}

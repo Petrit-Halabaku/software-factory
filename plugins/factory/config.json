@@ -1,0 +1,28 @@
+{
+  "dashboard": { "host": "127.0.0.1", "port": 4100, "pollMs": 2000, "usagePollMs": 5000 },
+  "revisionMax": 2,
+  "agents": {
+    "spec-writer": { "agent": "factory:spec-writer", "label": "Spec Writer", "model": "opus", "stage": "spec" },
+    "builder": { "agent": "factory:builder", "label": "Builder", "model": "opus", "stage": "build" },
+    "security": { "agent": "factory:security", "label": "Security", "model": "opus", "stage": "review", "area": "security" },
+    "ux": { "agent": "factory:ux", "label": "UX", "model": "sonnet", "stage": "review", "area": "ux" },
+    "ui-design": { "agent": "factory:ui-design", "label": "UI Design", "model": "sonnet", "stage": "review", "area": "ui-design" },
+    "code": { "agent": "factory:code", "label": "Code", "model": "sonnet", "stage": "review", "area": "code" },
+    "approver": { "agent": "factory:approver", "label": "Approver", "model": "opus", "stage": "approve" }
+  },
+  "usage": { "staleMs": 8000, "pricing": null },
+  "files": { "maxBytes": 524288 },
+  "worktree": { "links": ["node_modules"] },
+  "plugins": {
+    "required": [
+      { "id": "superpowers@claude-plugins-official", "marketplace": "anthropics/claude-plugins-official" },
+      { "id": "feature-dev@claude-plugins-official", "marketplace": "anthropics/claude-plugins-official" },
+      { "id": "frontend-design@claude-plugins-official", "marketplace": "anthropics/claude-plugins-official" },
+      { "id": "claude-code-setup@claude-plugins-official", "marketplace": "anthropics/claude-plugins-official" },
+      { "id": "andrej-karpathy-skills@karpathy-skills", "marketplace": "forrestchang/andrej-karpathy-skills" },
+      { "id": "understand-anything@understand-anything", "marketplace": "Lum1104/Understand-Anything" }
+    ],
+    "bundled": ["code-review", "simplify"],
+    "orchestratorSkills": ["superpowers:dispatching-parallel-agents", "superpowers:requesting-code-review", "superpowers:diagnosing-superpowers"]
+  }
+}

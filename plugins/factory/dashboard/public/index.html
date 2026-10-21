@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Software Factory</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script type="module" src="/static/app.mjs"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to the dashboard</a>
+  <div id="main">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <h1>Software Factory</h1>
+        <span class="badge-dev" title="Served on localhost only; not part of the app">Local · dev only</span>
+      </div>
+      <div class="topbar-run">
+        <div id="run-select-wrap"></div>
+        <div id="run-status"></div>
+      </div>
+      <div class="topbar-live"><span id="live-status" class="live" role="status" aria-live="off">Connecting…</span></div>
+    </header>
+
+    <main class="page">
+      <div id="alerts"></div>
+
+      <!-- Every card but the workflow collapses (data-card); state is kept per viewer. -->
+      <section class="card card-run" aria-labelledby="run-h" data-card="run">
+        <div class="card-head"><h2 id="run-h"><button type="button" class="collapse-btn" data-collapse="run" aria-expanded="true" aria-controls="run-panel"><span class="chev" aria-hidden="true"></span>Run</button></h2></div>
+        <div id="run-panel" class="card-panel"><div id="run"><div class="skeleton skeleton-run" aria-hidden="true"></div></div></div>
+      </section>
+
+      <section class="card" aria-labelledby="wf-h" id="workflow">
+        <div class="card-head"><h2 id="wf-h">Workflow</h2><p class="small muted">Click a finished step to read what it produced.</p></div>
+        <div id="workflow-body" class="wf-wrap"></div>
+        <ul class="legend" aria-label="Legend">
+          <li><span class="sw sw-idle"></span>Pending</li><li><span class="sw sw-run"></span>Running</li><li><span class="sw sw-ok"></span>Done / PASS</li><li><span class="sw sw-warn"></span>CHANGES / waiting</li><li><span class="sw sw-bad"></span>Blocked</li>
+        </ul>
+      </section>
+
+      <!-- Two independent stacks: a card's height (or collapsing it) only
+           moves the cards below it in its own column. -->
+      <div class="columns">
+        <div class="stack">
+          <section class="card" aria-labelledby="agents-h" data-card="agents">
+            <div class="card-head"><h2 id="agents-h"><button type="button" class="collapse-btn" data-collapse="agents" aria-expanded="true" aria-controls="agents-panel"><span class="chev" aria-hidden="true"></span>Agents</button></h2></div>
+            <div id="agents-panel" class="card-panel"><div id="agents-body"></div></div>
+          </section>
+          <section class="card" aria-labelledby="approval-h" data-card="approval">
+            <div class="card-head"><h2 id="approval-h"><button type="button" class="collapse-btn" data-collapse="approval" aria-expanded="true" aria-controls="approval-panel"><span class="chev" aria-hidden="true"></span>Approval</button></h2></div>
+            <div id="approval-panel" class="card-panel"><div id="approval-body"></div></div>
+          </section>
+        </div>
+        <div class="stack">
+          <section class="card" aria-labelledby="reviews-h" data-card="reviews">
+            <div class="card-head"><h2 id="reviews-h"><button type="button" class="collapse-btn" data-collapse="reviews" aria-expanded="true" aria-controls="reviews-panel"><span class="chev" aria-hidden="true"></span>Reviews</button></h2></div>
+            <div id="reviews-panel" class="card-panel"><div id="reviews-body"></div></div>
+          </section>
+          <section class="card" aria-labelledby="rev-h" data-card="revisions">
+            <div class="card-head"><h2 id="rev-h"><button type="button" class="collapse-btn" data-collapse="revisions" aria-expanded="true" aria-controls="revisions-panel"><span class="chev" aria-hidden="true"></span>Revision progress</button></h2></div>
+            <div id="revisions-panel" class="card-panel"><div id="revisions-body"></div></div>
+          </section>
+        </div>
+      </div>
+
+      <section class="card" aria-labelledby="usage-h" id="usage" data-card="usage">
+        <div class="card-head card-head-wrap"><h2 id="usage-h"><button type="button" class="collapse-btn" data-collapse="usage" aria-expanded="true" aria-controls="usage-panel"><span class="chev" aria-hidden="true"></span>Token usage</button></h2><div id="usage-tabs" class="card-extra"></div></div>
+        <div id="usage-panel" class="card-panel"><div id="usage-body"></div></div>
+      </section>
+
+      <div class="columns columns-wide-left">
+        <div class="stack">
+          <section class="card" aria-labelledby="art-h" id="artifacts" data-card="artifacts">
+            <div class="card-head card-head-wrap">
+              <h2 id="art-h"><button type="button" class="collapse-btn" data-collapse="artifacts" aria-expanded="false" aria-controls="artifacts-panel"><span class="chev" aria-hidden="true"></span>Artifacts <span id="artifacts-count" class="count"></span></button></h2>
+              <div id="artifacts-filter-wrap" class="card-extra" hidden><label class="sr-only" for="artifacts-filter">Filter files</label><input id="artifacts-filter" class="input" type="search" placeholder="Filter files" autocomplete="off"></div>
+            </div>
+            <div id="artifacts-panel" class="card-panel" hidden><div id="artifacts-body"></div></div>
+          </section>
+        </div>
+        <div class="stack">
+          <section class="card" aria-labelledby="act-h" data-card="activity">
+            <div class="card-head"><h2 id="act-h"><button type="button" class="collapse-btn" data-collapse="activity" aria-expanded="true" aria-controls="activity-panel"><span class="chev" aria-hidden="true"></span>Activity</button></h2></div>
+            <div id="activity-panel" class="card-panel"><div id="activity-body"></div></div>
+          </section>
+        </div>
+      </div>
+
+      <footer class="foot small muted">Read-only view of <span class="mono">factory/board.json</span>. Times are in <span id="tz"></span>. Updates without reloading.</footer>
+    </main>
+  </div>
+
+  <div id="drawer-root" hidden>
+    <div class="backdrop" data-close></div>
+    <aside id="drawer" class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+      <header class="drawer-head">
+        <div class="drawer-titles"><h2 id="drawer-title">File</h2><p id="drawer-path" class="mono small muted"></p></div>
+        <div class="drawer-actions">
+          <button type="button" id="drawer-copy" class="btn btn-sm" hidden>Copy</button>
+          <a id="drawer-download" class="btn btn-sm" download hidden>Download</a>
+          <button type="button" id="drawer-close" class="btn btn-sm btn-icon" aria-label="Close the file viewer"><span aria-hidden="true">✕</span></button>
+        </div>
+      </header>
+      <dl id="drawer-meta" class="drawer-meta"></dl>
+      <div id="drawer-tabs" class="drawer-tabs"></div>
+      <div id="drawer-body" class="drawer-body" tabindex="0" aria-label="File contents"></div>
+    </aside>
+  </div>
+  <div id="live" class="sr-only" role="status" aria-live="polite"></div>
+</body>
+</html>

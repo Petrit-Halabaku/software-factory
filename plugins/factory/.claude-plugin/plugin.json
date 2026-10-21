@@ -1,0 +1,18 @@
+{
+  "name": "factory",
+  "version": "0.1.0",
+  "description": "A local, visual software factory: /factory turns a feature request into a spec, an isolated-worktree build, four parallel reviews, an approval and an unstaged merge-back, with a live dashboard, token monitoring and an artifact explorer.",
+  "author": { "name": "Petrit Halabaku", "url": "https://github.com/Petrit-Halabaku" },
+  "homepage": "https://github.com/Petrit-Halabaku/software-factory",
+  "repository": "https://github.com/Petrit-Halabaku/software-factory",
+  "license": "MIT",
+  "keywords": ["workflow", "subagents", "code-review", "worktree", "dashboard"],
+  "dependencies": [
+    "superpowers@claude-plugins-official",
+    "feature-dev@claude-plugins-official",
+    "frontend-design@claude-plugins-official",
+    "claude-code-setup@claude-plugins-official",
+    "andrej-karpathy-skills@karpathy-skills",
+    "understand-anything@understand-anything"
+  ]
+}

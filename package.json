@@ -1,0 +1,10 @@
+{
+  "name": "software-factory",
+  "private": true,
+  "description": "A Claude Code plugin: a local, visual software factory.",
+  "license": "MIT",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test plugins/factory/test/*.test.mjs"
+  }
+}
