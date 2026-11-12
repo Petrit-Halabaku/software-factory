@@ -8,7 +8,7 @@ import path from 'node:path';
 import { factoryPaths, reviewRoles } from './config.mjs';
 import { emptyBoard, logEvent, parseApproval, parseReviewReport, readBoard, setStage, updateBoard } from './board.mjs';
 import { expectRunFile, markFailed, registerRound, runFileId, syncRunFiles } from './artifacts.mjs';
-import { checkExclusions, ensureExclusions } from './exclude.mjs';
+import { checkExclusions, ensureExclusions, packagingWarnings } from './exclude.mjs';
 import { nowIso, readJson, writeFileAtomic, writeJsonAtomic } from './fsutil.mjs';
 import {
   FactoryError, currentBranch, diffFiles, git, gitOut, hashFiles, headCommit, indexFingerprint,
@@ -28,13 +28,30 @@ function sync(ctx, board) {
   if (board.runId) syncRunFiles(board, runDir(ctx, board), ctx.config);
 }
 
-export function preflight(ctx, { worktree } = {}) {
+// Uncommitted work in the human's checkout. A run builds from the last
+// commit, so none of this reaches the builder; the orchestrator lists it and
+// asks before building without work the request may depend on.
+const DIRTY_LIST_MAX = 50;
+function dirtySummary(repoDir) {
+  const status = statusMap(repoDir);
+  const paths = Object.keys(status);
+  const staged = paths.filter((p) => !' ?!'.includes(status[p][0]));
+  return {
+    count: paths.length,
+    staged: staged.length,
+    paths: paths.slice(0, DIRTY_LIST_MAX).map((p) => `${status[p]} ${p}`),
+    truncated: paths.length > DIRTY_LIST_MAX,
+  };
+}
+
+export function preflight(ctx, { worktree, dirty = false } = {}) {
   const links = ctx.config.worktree.links;
   const main = checkExclusions(ctx.repoDir, { links });
   const problems = [...main.problems];
   if (worktree && existsSync(worktree)) problems.push(...checkExclusions(worktree, { links }).problems.map((p) => `worktree: ${p}`));
   // Warnings never block a run; the orchestrator passes them on.
   const warnings = links.filter((l) => !existsSync(path.join(ctx.repoDir, l))).map((l) => `worktree link ${l} does not exist in the repository`);
+  warnings.push(...packagingWarnings(ctx.repoDir));
   const rules = factoryPaths(ctx.factoryDir).houseRules;
   if (!existsSync(rules)) problems.push(`${rules} is missing; run /factory init`);
   else {
@@ -42,7 +59,7 @@ export function preflight(ctx, { worktree } = {}) {
     if (/<!-- FILL\b/.test(text)) problems.push(`${rules} still has FILL sections; finish /factory init`);
     for (const m of text.matchAll(/<!-- UNCONFIRMED: ([^>]*?) -->/g)) warnings.push(`house rules, not confirmed by the human: ${m[1].trim()}`);
   }
-  return { ok: problems.length === 0, problems, warnings, excludeFile: main.excludeFile, checked: main.checks.length };
+  return { ok: problems.length === 0, problems, warnings, excludeFile: main.excludeFile, checked: main.checks.length, ...(dirty ? { dirty: dirtySummary(ctx.repoDir) } : {}) };
 }
 
 // Set the factory up in a repository: exclusions first, then the state
@@ -362,7 +379,7 @@ export function reviewOutcome(ctx) {
     }
     setStage(b, 'review', 'BLOCKED');
     logEvent(b, `Review pass ${p.pass}: CHANGES after ${b.revision.max} revision rounds`);
-    return { outcome: 'EXHAUSTED', pass: p.pass, reports };
+    return { outcome: 'EXHAUSTED', pass: p.pass, revisions: b.revision.max, reports };
   });
 }
 
@@ -421,7 +438,7 @@ export function escalate(ctx, { by = 'orchestrator', reason }) {
       '',
       '## Next actions',
       '- `/factory approve [note]` approves this work and applies it to your branch as unstaged changes (after the Git safety checks).',
-      '- Or tell the orchestrator what to change; that becomes a human revision, which does not count against the 2 automatic rounds.',
+      `- Or tell the orchestrator what to change; that becomes a human revision, which does not count against the limit of ${b.revision.max} automatic revision round${b.revision.max === 1 ? '' : 's'}.`,
       `- Or abandon the run: \`git worktree remove --force ${b.worktree}\` and \`git branch -D ${b.factoryBranch}\`.`,
       '',
       '## What approval requires',

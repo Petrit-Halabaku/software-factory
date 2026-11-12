@@ -70,6 +70,7 @@ All in `factory/runs/<run-id>/`:
 | File | By | Notes |
 |---|---|---|
 | `request.md` | orchestrator | the request, verbatim |
+| `main-status.txt` | orchestrator | the paths that were uncommitted in the human's checkout when the run started (names only) |
 | `spec.md`, `plan.md` | spec writer | |
 | `build.md` | builder | one file; revisions append `## Revision <N>` |
 | `reviews/pass-<N>/<area>.md` | reviewers | area = `security`, `ux`, `ui-design`, `code`; one directory per pass, never overwritten |
@@ -80,7 +81,7 @@ All in `factory/runs/<run-id>/`:
 | `artifacts/final/<path>` | orchestrator | final versions of changed files, kept at merge-back |
 | `run.json` | orchestrator | archived copy of the board |
 
-Round 0 is the initial build, rounds 1 and 2 the automatic revisions, later rounds human revisions. Pass N reviews the round committed just before it.
+Round 0 is the initial build, the next rounds the automatic revisions (at most `revisionMax`, default 2), later rounds human revisions. Pass N reviews the round committed just before it.
 
 ## Review report format
 
@@ -125,20 +126,21 @@ The token monitor (`lib/usage.mjs`) reads Claude Code's local session records fo
 - `<session>.jsonl`: the main thread, i.e. the orchestrator.
 - `<session>/subagents/agent-<agentId>.jsonl`: one file per subagent.
 
-A subagent's usage belongs to the role whose recorded session has that `agentId` (`fac.mjs agent-start <role> --agent-id <id>`). Helper agents spawned by the spec writer or the code reviewer have ids the board never records, so their usage is listed as unattributed. A resumed agent keeps its id; its messages go to the session (and round) that was current when they were sent. A restarted agent gets a new id and a new session under the same role. Main-thread messages of the orchestrator's session between the run's start and end are the orchestrator's, except while the run waits for the human (from an escalation until work resumes), when that session may be doing other things. Everything else is listed separately as unattributed. Each API message counts once (deduplicated by message id and request id, largest snapshot kept). Only ids, model, timestamps and the four token counters are stored; never prompt or message text. A local 5-hour window is not the plan's quota; no quota is shown because no supported source reports it.
+A subagent's usage belongs to the role whose recorded session has that `agentId` (`fac.mjs agent-start <role> --agent-id <id>`). Helper agents spawned by the spec writer or the code reviewer have ids the board never records, so their usage is listed as unattributed. A resumed agent keeps its id; its messages go to the session (and round) that was current when they were sent. A restarted agent gets a new id and a new session under the same role. Main-thread messages of the orchestrator's session between the run's start and end are the orchestrator's, except while the run waits for the human (from an escalation until work resumes), when that session may be doing other things. Everything else is listed separately as unattributed. Each API message counts once (deduplicated by message id and request id, largest snapshot kept). Only ids, model, timestamps, the four token counters and the paths of the record files are stored (in `factory/`); never prompt or message text. A local 5-hour window is not the plan's quota; no quota is shown because no supported source reports it.
 
 ## Security restrictions
 
 - Never put a secret, token, key, password or connection string in a report, a log line or a commit. Name the file and line instead.
 - Never read `.env*` files' values into a report. Never access undocumented authentication endpoints or credentials.
 - Never execute generated content, and never fetch from the network to complete a review.
-- The dashboard is local, read-only and development-only: it binds to 127.0.0.1, serves registered artifacts by id only, and refuses traversal, symlinks, secret files and oversized files.
+- The dashboard is local, read-only and development-only: it binds to 127.0.0.1, serves registered artifacts by id only, and refuses traversal, symlinks, secret files and oversized files. It has no login, so whatever a run document says can be read by anything on this machine: one more reason no secret goes into one.
+- `factory/` is hidden from Git only (`.git/info/exclude`). Never copy a run document, a patch or anything else from `factory/` into the worktree, and never name `factory/` paths in application code or its configuration.
 
 ## Approval workflow
 
 1. All four reviews of a pass PASS → the approver runs.
-2. Any CHANGES → the builder is resumed with the reports (at most **2 automatic revision rounds**); all four reviewers run again on the new round.
-3. Still CHANGES after revision 2 → escalation to the human.
+2. Any CHANGES → the builder is resumed with the reports (at most **`revisionMax` automatic revision rounds**, default 2, set in `factory/config.json`); all four reviewers run again on the new round.
+3. Still CHANGES after the last automatic revision → escalation to the human.
 4. The approver writes `Decision: APPROVE` (→ merge-back) or `Decision: ESCALATE` (→ the board shows WAITING_FOR_HUMAN; the human runs `/factory approve [note]` or asks for changes, which become human revisions that do not count against the limit).
 
 ## Merge-back rules

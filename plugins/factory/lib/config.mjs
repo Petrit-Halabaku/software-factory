@@ -9,7 +9,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readJson } from './fsutil.mjs';
+import { readJson, sha256 } from './fsutil.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -27,6 +27,14 @@ export const DEFAULT_REPO_DIR = process.env.FACTORY_REPO ? path.resolve(process.
 export const DEFAULT_FACTORY_DIR = process.env.FACTORY_DIR ? path.resolve(process.env.FACTORY_DIR) : path.join(DEFAULT_REPO_DIR, 'factory');
 
 export const expandHome = (p) => (p.startsWith('~/') ? path.join(os.homedir(), p.slice(2)) : p);
+
+// Which repository a dashboard serves, without putting its path on the wire.
+export const repoId = (repoDir) => sha256(path.resolve(repoDir)).slice(0, 16);
+
+export function dashboardUrl(config, port = config.dashboard.port) {
+  const host = config.dashboard.host.includes(':') ? `[${config.dashboard.host}]` : config.dashboard.host;
+  return `http://${host}:${port}/`;
+}
 
 export function factoryPaths(factoryDir = DEFAULT_FACTORY_DIR) {
   return {

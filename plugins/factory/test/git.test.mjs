@@ -7,7 +7,7 @@ import { appendFileSync, existsSync, readFileSync, rmSync, symlinkSync, writeFil
 import path from 'node:path';
 import * as wf from '../lib/workflow.mjs';
 import { checkExclusions } from '../lib/exclude.mjs';
-import { indexFingerprint, pendingOperations } from '../lib/git.mjs';
+import { indexFingerprint, isSecretPath, pendingOperations, secretLines } from '../lib/git.mjs';
 import { readBoard } from '../lib/board.mjs';
 import { g, makeRepo, read, reviewAll, sh, startAndBuild, write } from './helpers.mjs';
 
@@ -246,6 +246,73 @@ test('rounds refuse secrets and dependency paths, and the guard spots writes to 
   assert.ok(b.log.some((l) => l.text.includes('Guard: changed in the main checkout')));
 });
 
+test('preflight lists the human\'s uncommitted work only when asked', (t) => {
+  const r = makeRepo();
+  t.after(r.cleanup);
+  assert.equal('dirty' in wf.preflight(r.ctx), false, 'the per-round checks stay cheap');
+  const d = wf.preflight(r.ctx, { dirty: true }).dirty;
+  assert.deepEqual(d.paths.slice().sort(), [' M app/page.js', '?? scratch-notes.txt', 'M  worker/index.js']);
+  assert.equal(d.count, 3);
+  assert.equal(d.staged, 1);
+  assert.equal(d.truncated, false);
+});
+
+test('secret paths and credential-looking lines: real formats are refused, placeholders and local hosts are not', () => {
+  for (const p of ['.env', 'apps/web/.env.local', '.envrc', 'worker/.dev.vars', '.git-credentials', '.pypirc', 'infra/prod.tfvars',
+    'infra/terraform.tfstate', 'infra/terraform.tfstate.backup', 'keys/AuthKey_ABC.p8', 'svc.keytab', 'kubeconfig', 'id_ed25519', 'certs/server.key',
+    '.env-prod', 'apps/api/.env_local', 'deploy/prod.env', 'keys/deploy.ppk', 'vpn/office.ovpn', 'infra/prod.auto.tfvars.json', '.terraformrc',
+    '.ssh/config', 'home/.gnupg/pubring.kbx', '.kube/config', 'ci/.docker/config.json']) {
+    assert.equal(isSecretPath(p), true, p);
+  }
+  for (const p of ['.env.example', 'infra/prod.tfvars.example', 'lib/env.js', 'docs/secrets.md', 'kubeconfig.md', 'src/keys.ts',
+    '.env-example', 'deploy/sample.env', 'config/env.ts', 'docs/ssh/config.md', 'src/docker/config.json', 'kube/config.yaml']) {
+    assert.equal(isSecretPath(p), false, p);
+  }
+
+  // Every token is assembled at run time so no key-shaped literal sits in the source.
+  const r = (n, chars = 'aB3dE6gH9jK2mN5pQ8sT1vW4yZ7') => chars.repeat(Math.ceil(n / chars.length)).slice(0, n);
+  const lines = (file, ...added) => `+++ b/${file}\n${added.map((l) => `+${l}`).join('\n')}\n`;
+  const caught = [
+    ['github_pat', `github_pat_${r(60)}`],
+    ['glpat', `glpat-${r(24)}`],
+    ['npm', `npm_${r(36)}`],
+    ['openai project', `sk-proj-${r(40)}`],
+    ['stripe webhook', `whsec_${r(32)}`],
+    ['aws temporary', `ASIA${'ABCDEFGHIJKLMNOP'}`],
+    ['slack webhook', ['https://hooks.slack.com/services', `T${r(8).toUpperCase()}`, `B${r(8).toUpperCase()}`, r(24)].join('/')],
+    ['sendgrid', ['SG', r(22), r(43)].join('.')],
+    ['encrypted key', ['-----BEGIN', 'ENCRYPTED PRIVATE KEY-----'].join(' ')],
+    ['pgp key block', ['-----BEGIN PGP', 'PRIVATE KEY BLOCK-----'].join(' ')],
+    ['google oauth secret', `GOCSPX-${r(28)}`],
+    ['digitalocean', `dop_v1_${'0a1b2c3d'.repeat(8)}`],
+    ['hugging face', `hf_${r(34)}`],
+    ['shopify', `shpat_${'0a1b2c3d'.repeat(4)}`],
+    ['supabase access token', `sbp_${'0a1b2c3d4e'.repeat(4)}`],
+    ['supabase secret key', `sb_secret_${r(24)}`],
+    ['pypi', ['pypi', `AgEIcHlwaS5vcmc${r(60)}`].join('-')],
+    ['telegram bot', `${'12345678'}:AA${r(33)}`],
+    ['registry token', `//registry.npmjs.org/:_authToken=${r(36)}`],
+    ['remote db url', `DATABASE_URL=${['postgres://app', `${r(12)}@db.prod-cluster.net:5432/app`].join(':')}`],
+    ['remote db ip', `${['mongodb://svc', `${r(10)}@10.20.30.40/app`].join(':')}`],
+  ];
+  for (const [what, line] of caught) assert.deepEqual(secretLines(lines('lib/config.js', line)), ['lib/config.js'], what);
+
+  const allowed = [
+    ['local db', ['postgres://postgres', 'postgres@localhost:5432/test'].join(':')],
+    ['loopback db', ['mysql://root', 'rootpw@127.0.0.1/app'].join(':')],
+    ['compose service name', ['postgres://app', 'app@db:5432/app'].join(':')],
+    ['env placeholder', ['postgres://app', '${DB_PASSWORD}@db.prod-cluster.net/app'].join(':')],
+    ['example domain', ['postgres://user', 'password@db.example.com/app'].join(':')],
+    ['short prefix only', 'const prefix = "sk-proj-";'],
+    ['pgp public key', ['-----BEGIN PGP', 'PUBLIC KEY BLOCK-----'].join(' ')],
+    ['registry token from the environment', '//registry.npmjs.org/:_authToken=${NPM_TOKEN}'],
+    ['a function name', 'const file = hf_hub_download(repo_id, filename);'],
+    ['a number and a colon', 'chat 12345678: AA batteries included'],
+    ['prose', 'Set GITHUB_TOKEN in your environment; never commit it.'],
+  ];
+  for (const [what, line] of allowed) assert.deepEqual(secretLines(lines('lib/config.js', line)), [], what);
+});
+
 test('limits, escalation and human approval', (t) => {
   const r = makeRepo({ humanChanges: false });
   t.after(r.cleanup);
@@ -270,6 +337,7 @@ test('limits, escalation and human approval', (t) => {
   wf.escalate(r.ctx, { by: 'orchestrator', reason: 'reviews still request changes after 2 revision rounds' });
   assert.equal(board(r.ctx).status, 'WAITING_FOR_HUMAN');
   assert.match(read(path.join(run.runDir, 'escalation.md')), /reviews still request changes/);
+  assert.match(read(path.join(run.runDir, 'escalation.md')), /limit of 2 automatic revision rounds\./);
   throwsCode(() => wf.startRun(r.ctx, { title: 'another', request: 'x' }), 'ACTIVE_RUN');
 
   // a human revision does not count against the limit
@@ -318,4 +386,43 @@ test('spec writer without plan.md fails the stage; a symlinked node_modules is n
   wf.agentStart(r.ctx, 'builder');
   write(path.join(run.worktreeAbs, 'lib/x.js'), 'x\n');
   throwsCode(() => wf.commitRound(r.ctx), 'POLICY');
+});
+
+test('the escalation file states the configured revision limit, not a fixed one', (t) => {
+  const r = makeRepo({ humanChanges: false });
+  t.after(r.cleanup);
+  const ctx = { ...r.ctx, config: { ...r.ctx.config, revisionMax: 1 } };
+  const { run } = startAndBuild(wf, ctx);
+  wf.escalate(ctx, { by: 'orchestrator', reason: 'needs a decision' });
+  assert.match(read(path.join(run.runDir, 'escalation.md')), /limit of 1 automatic revision round\./);
+});
+
+test('preflight warns when a container build or npm publish would take factory/ along, and never blocks on it', (t) => {
+  const r = makeRepo({ humanChanges: false });
+  t.after(r.cleanup);
+  const packaging = () => wf.preflight(r.ctx).warnings.filter((w) => w.includes('factory/'));
+  assert.deepEqual(packaging(), [], 'no container file and no package.json: nothing to warn about');
+
+  write(path.join(r.repo, 'Dockerfile'), 'FROM scratch\nCOPY . .\n');
+  write(path.join(r.repo, 'package.json'), JSON.stringify({ name: 'lib', version: '1.0.0' }));
+  let w = packaging();
+  assert.equal(w.length, 2);
+  assert.match(w[0], /\.dockerignore/);
+  assert.match(w[1], /npm publish/);
+  assert.equal(wf.preflight(r.ctx).ok, true, 'warnings never block a run');
+
+  write(path.join(r.repo, '.dockerignore'), 'node_modules\n/factory/\n');
+  write(path.join(r.repo, 'package.json'), JSON.stringify({ name: 'app', private: true }));
+  assert.deepEqual(packaging(), [], 'an ignore line and a private package');
+
+  write(path.join(r.repo, '.dockerignore'), '# everything out, then the app back in\n*\n!src\n');
+  write(path.join(r.repo, 'package.json'), JSON.stringify({ name: 'lib', files: ['dist'] }));
+  assert.deepEqual(packaging(), [], 'an allow-list and a "files" list');
+
+  write(path.join(r.repo, '.dockerignore'), 'factory-old\n!factory\n');
+  write(path.join(r.repo, 'package.json'), JSON.stringify({ name: 'lib' }));
+  write(path.join(r.repo, '.npmignore'), 'factory\n');
+  w = packaging();
+  assert.equal(w.length, 1, 'a near-miss pattern does not count; an .npmignore line does');
+  assert.match(w[0], /\.dockerignore/);
 });

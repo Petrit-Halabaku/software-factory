@@ -119,28 +119,66 @@ const FACTORY_INFRA = /^factory\//;
 export const isFactoryPath = (p) => FACTORY_INFRA.test(p);
 export const isDependencyPath = (p) => /(^|\/)node_modules(\/|$)/.test(p);
 
+const SECRET_FILES = new Set([
+  '.envrc', '.dev.vars', '.npmrc', '.netrc', '.pgpass', '.htpasswd', '.pypirc', '.git-credentials', '.dockercfg',
+  '.vault-token', '.terraformrc', 'terraform.rc', 'kubeconfig', 'service-account.json', 'secrets.json', 'secrets.yml',
+  'secrets.yaml', '.secrets',
+]);
+
+// A template is meant to be committed; its added lines are still scanned.
+const TEMPLATE_SUFFIX = /\.(example|sample|template)$/;
+const TEMPLATE_WORD = /(^|[._-])(example|sample|template)([._-]|$)/;
+
 export function isSecretPath(p) {
-  const base = p.split('/').pop().toLowerCase();
-  if (/\.(example|sample|template)$/.test(base)) return false;
+  const lower = p.toLowerCase();
+  const base = lower.split('/').pop();
+  if (TEMPLATE_SUFFIX.test(base)) return false;
+  // Other spellings of an env file: .env-prod, .env_local, prod.env.
+  if ((/^\.env[-_]/.test(base) || /\.env$/.test(base)) && !TEMPLATE_WORD.test(base)) return true;
   return (
     /^\.env($|\.)/.test(base) ||
-    /\.(pem|key|p12|pfx|jks|keystore|crt|cer)$/.test(base) ||
+    /\.(pem|key|p8|p12|pfx|jks|keystore|keytab|kdbx|ppk|ovpn|crt|cer|tfvars|tfstate)$/.test(base) ||
+    /\.tfstate\.backup$/.test(base) ||
+    /\.tfvars\.json$/.test(base) ||
     /^id_(rsa|dsa|ecdsa|ed25519)/.test(base) ||
-    ['.npmrc', '.netrc', '.pgpass', '.htpasswd', 'service-account.json', 'secrets.json', 'secrets.yml', 'secrets.yaml', '.secrets'].includes(base) ||
-    /^credentials($|\.)/.test(base)
+    SECRET_FILES.has(base) ||
+    /^credentials($|\.)/.test(base) ||
+    /(^|\/)\.(ssh|gnupg)\//.test(lower) ||
+    /(^|\/)(\.kube\/config|\.docker\/config\.json)$/.test(lower)
   );
 }
 
-// Added lines that look like a live credential.
+// Added lines that look like a live credential: formats specific enough that
+// a match is almost never anything else.
 const SECRET_CONTENT = [
-  /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----/,
-  /\bsk_live_[0-9A-Za-z]{16,}/,
-  /\brk_live_[0-9A-Za-z]{16,}/,
-  /\bAKIA[0-9A-Z]{16}\b/,
-  /\bgh[pousr]_[A-Za-z0-9]{36,}\b/,
-  /\bxox[abprs]-[A-Za-z0-9-]{10,}/,
-  /\bsk-ant-[A-Za-z0-9_-]{20,}/,
+  /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY(?: BLOCK)?-----/,
+  /\b[rs]k_live_[0-9A-Za-z]{16,}/, // Stripe secret and restricted keys
+  /\bwhsec_[0-9A-Za-z]{24,}/, // Stripe webhook signing secrets
+  /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/, // AWS access key ids
+  /\bgh[pousr]_[A-Za-z0-9]{36,}\b/, // GitHub tokens
+  /\bgithub_pat_[A-Za-z0-9_]{40,}/, // GitHub fine-grained tokens
+  /\bglpat-[A-Za-z0-9_-]{20,}/, // GitLab tokens
+  /\bnpm_[A-Za-z0-9]{36}\b/, // npm tokens
+  /\bxox[abprs]-[A-Za-z0-9-]{10,}/, // Slack tokens
+  /\bxapp-\d-[A-Za-z0-9-]{10,}/, // Slack app tokens
+  /https:\/\/hooks\.slack\.com\/services\/T[A-Za-z0-9]+\/B[A-Za-z0-9]+\/[A-Za-z0-9]{16,}/, // Slack webhooks
+  /\bSG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}\b/, // SendGrid
+  /\bsk-ant-[A-Za-z0-9_-]{20,}/, // Anthropic
+  /\bsk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}/, // OpenAI project, service and admin keys
   /\bsk-[A-Za-z0-9]{40,}\b/,
+  /\bGOCSPX-[A-Za-z0-9_-]{28}/, // Google OAuth client secrets
+  /\bdop_v1_[a-f0-9]{64}\b/, // DigitalOcean
+  /\bhf_[A-Za-z0-9]{34,}\b/, // Hugging Face
+  /\bshp(?:at|ss|ca|pa)_[a-fA-F0-9]{32}\b/, // Shopify
+  /\bsbp_[a-f0-9]{40}\b/, // Supabase access tokens
+  /\bsb_secret_[A-Za-z0-9_-]{20,}/, // Supabase secret keys
+  /\bpypi-AgEIcHlwaS5vcmc[A-Za-z0-9_-]{50,}/, // PyPI
+  /\b\d{8,10}:AA[A-Za-z0-9_-]{33}\b/, // Telegram bot tokens
+  /_authToken=(?![$<{%*])[A-Za-z0-9+/=_-]{20,}/, // a literal package-registry token
+  // A password inside a connection URL to a non-local host. Placeholders
+  // ($VAR, ${VAR}, <pw>, {{pw}}, %s, ***), service names without a domain
+  // (db, postgres), local hosts and example domains don't count.
+  /\b(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|rediss?|amqps?):\/\/[^\s:@/]+:(?![$<{%*])[^\s@/]{3,}@(?!(?:localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|host\.docker\.internal|(?:[A-Za-z0-9-]+\.)*example\.(?:com|org|net))\b)(?:[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}|\d{1,3}(?:\.\d{1,3}){3})/,
 ];
 
 export function secretLines(diff) {

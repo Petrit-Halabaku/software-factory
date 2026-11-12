@@ -3,7 +3,8 @@
 // Run from the repository root:  node "${CLAUDE_PLUGIN_ROOT}/bin/fac.mjs" <command> [options]
 // The repository is the Git top level of the current directory (or
 // FACTORY_REPO); its state lives in <repo>/factory/ (or FACTORY_DIR).
-// Every command prints one JSON object; failures exit 1 with
+// Every command prints one JSON object, except `dashboard` (a status line),
+// `status --text` and the help; failures exit 1 with
 // { "error", "code", "details" }.
 
 import { readFileSync } from 'node:fs';
@@ -17,7 +18,7 @@ import * as wf from '../lib/workflow.mjs';
 const HELP = `fac.mjs — factory orchestrator commands
 
   init                                       exclusions, factory/ state, house-rules template
-  preflight                                  check exclusions and house rules
+  preflight                                  check exclusions and house rules; warn about packaging; list uncommitted work
   plugins                                    check the plugins and skills the agents need
   rules                                      paths of the two rule files every agent reads
   start --title T (--request R | --request-file F) [--session ID] [--model M]
@@ -35,7 +36,9 @@ const HELP = `fac.mjs — factory orchestrator commands
   usage
   sync
   log TEXT
-  dashboard                                  start the local dashboard
+  dashboard [--port N]                       start the local dashboard (prints a line, not JSON)
+  dashboard-status [--port N]                this repository's dashboard: ours (url), down (free port) or other;
+                                             with --port, that one port only
 
 Roles: spec-writer builder security ux ui-design code approver`;
 
@@ -58,7 +61,7 @@ function parseArgs(argv) {
 
 const print = (v) => process.stdout.write(`${JSON.stringify(v, null, 2)}\n`);
 
-function statusSummary(ctx, { usage = true } = {}) {
+function statusSummary(ctx, { usage = true, dashboard = null } = {}) {
   const p = factoryPaths(ctx.factoryDir);
   const { board, errors } = readBoard(p.board, ctx.config);
   const art = (id) => board.artifacts.find((a) => a.id === id);
@@ -94,7 +97,7 @@ function statusSummary(ctx, { usage = true } = {}) {
     files: runDir ? board.artifacts.filter((a) => a.kind === 'run-file' && ['READY', 'UPDATED'].includes(a.status)).map((a) => path.join(runDir, a.path)) : [],
     changedFiles: board.artifacts.filter((a) => a.kind === 'git-file').map((a) => a.path),
     tokens,
-    dashboard: `http://${ctx.config.dashboard.host}:${ctx.config.dashboard.port}/`,
+    dashboard, // the URL of a dashboard that serves this repository right now, or null
     boardErrors: errors,
     approvalReport: board.approval.artifactId ? art(board.approval.artifactId)?.path ?? null : null,
   };
@@ -115,7 +118,7 @@ async function main() {
     case 'rules':
       return print(rules);
     case 'preflight': {
-      const r = wf.preflight(ctx);
+      const r = wf.preflight(ctx, { dirty: true });
       print(r);
       process.exitCode = r.ok ? 0 : 1;
       return;
@@ -153,7 +156,9 @@ async function main() {
     case 'stop':
       return print(wf.stopRun(ctx, { reason: typeof args.reason === 'string' ? args.reason : undefined }));
     case 'status': {
-      const s = statusSummary(ctx);
+      const { locateDashboard } = await import('../dashboard/server.mjs');
+      const found = await locateDashboard(ctx);
+      const s = statusSummary(ctx, { dashboard: found.state === 'ours' ? found.url : null });
       if (!args.text) return print(s);
       const lines = [
         `Run: ${s.runId ?? 'none'} — ${s.status}${s.feature ? ` — ${s.feature}` : ''}`,
@@ -161,7 +166,7 @@ async function main() {
         `Active: ${s.activeAgents.map((a) => `${a.role} (${a.model})`).join(', ') || 'none'} · pending reviews: ${s.pendingReviews.join(', ') || 'none'}`,
         `Approval: ${s.approval ?? 'none'}`,
         `Tokens (this run): ${s.tokens?.available && s.tokens.total != null ? `${s.tokens.total.toLocaleString('en-US')}${Object.keys(s.tokens.byModel).length ? ` (${Object.entries(s.tokens.byModel).map(([k, v]) => `${k} ${v.toLocaleString('en-US')}`).join(', ')})` : ''}${s.tokens.partial ? ', partial' : ''}` : 'unavailable'}`,
-        `Dashboard: ${s.dashboard}`,
+        `Dashboard: ${s.dashboard ?? 'not running'}`,
       ];
       process.stdout.write(`${lines.join('\n')}\n`);
       return;
@@ -179,6 +184,10 @@ async function main() {
       const { startServer } = await import('../dashboard/server.mjs');
       await startServer(ctx, { port: args.port ? Number(args.port) : undefined });
       return;
+    }
+    case 'dashboard-status': {
+      const { locateDashboard, probeDashboard } = await import('../dashboard/server.mjs');
+      return print(args.port ? await probeDashboard(ctx, { port: Number(args.port) }) : await locateDashboard(ctx));
     }
     default:
       process.stdout.write(`${HELP}\n`);

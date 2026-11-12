@@ -1,16 +1,18 @@
 // The factory dashboard: a development-only, read-only HTTP server bound to
-// localhost. It serves the static UI and four JSON endpoints. It never
-// writes the board; the only file it writes is the derived usage summary
-// (factory/usage.json and its cache), through the usage collector.
+// localhost. It serves the static UI and three endpoints (/api/state,
+// /api/usage, /api/artifact). It never writes the board; the only file it
+// writes is the derived usage summary (factory/usage.json and its cache),
+// through the usage collector. It has no login: loopback is the boundary, so
+// any process or user on this machine can read what it serves.
 //
-//   node factory/dashboard/server.mjs [--port N]
+//   node "<plugin>/bin/fac.mjs" dashboard [--port N]
 //   FACTORY_DIR / FACTORY_REPO point it at another factory (tests).
 
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { DEFAULT_FACTORY_DIR, DEFAULT_REPO_DIR, factoryPaths, loadConfig } from '../lib/config.mjs';
+import { DEFAULT_FACTORY_DIR, DEFAULT_REPO_DIR, dashboardUrl, factoryPaths, loadConfig, repoId } from '../lib/config.mjs';
 import { loadBoards, readBoard } from '../lib/board.mjs';
 import { sha256 } from '../lib/fsutil.mjs';
 import { FileError, RUN_ID_RE, downloadArtifact, readArtifact } from '../lib/files.mjs';
@@ -108,6 +110,7 @@ export function createDashboard(ctx, { port } = {}) {
       const currentRunId = readBoard(paths.board, ctx.config).board.runId;
       const runs = loadBoards(ctx.factoryDir, ctx.config).map((b) => ({ runId: b.runId, title: b.feature?.title ?? b.runId, status: b.status, createdAt: b.createdAt, updatedAt: b.updatedAt }));
       return json(req, res, 200, {
+        repoId: repoId(ctx.repoDir),
         board: sel.board,
         valid: sel.ok,
         errors: sel.errors,
@@ -150,6 +153,56 @@ export function createDashboard(ctx, { port } = {}) {
     }
   });
   return { server, listen: () => new Promise((resolve) => server.listen(port ?? cfg.port, host, () => resolve(server.address()))) };
+}
+
+// Is the dashboard on this port this repository's? A 200 only shows that
+// something answers; /api/state names the repository it serves. "other" is
+// anything else holding the port (another repository's dashboard, another
+// program, a server that never replies); "down" is nothing listening. Only
+// "ours" carries a url, so no caller can pass on an address that was not
+// checked.
+export function probeDashboard(ctx, { port, timeoutMs = 1500 } = {}) {
+  const { host } = ctx.config.dashboard;
+  const p = port ?? ctx.config.dashboard.port;
+  const url = dashboardUrl(ctx.config, p);
+  return new Promise((resolve) => {
+    let timedOut = false;
+    const req = httpRequest({ host, port: p, path: '/api/state', method: 'GET', headers: { host: `localhost:${p}` }, timeout: timeoutMs }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        let body = null;
+        try {
+          body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        } catch {
+          body = null;
+        }
+        const ours = res.statusCode === 200 && body?.repoId === repoId(ctx.repoDir);
+        resolve({ state: ours ? 'ours' : 'other', url: ours ? url : null, port: p, currentRunId: ours ? (body.currentRunId ?? null) : null });
+      });
+    });
+    req.on('timeout', () => {
+      timedOut = true;
+      req.destroy(new Error('timeout'));
+    });
+    req.on('error', () => resolve({ state: timedOut ? 'other' : 'down', url: null, port: p, currentRunId: null }));
+    req.end();
+  });
+}
+
+// This repository's dashboard on the configured port or one of the next two
+// (where it is started when the port is held). `ours` carries its url;
+// `down` carries the first free port to start it on; `other` means every
+// port checked is held by something else.
+export async function locateDashboard(ctx, { ports = 3, timeoutMs } = {}) {
+  const first = ctx.config.dashboard.port;
+  let free = null;
+  for (let p = first; p < first + ports; p++) {
+    const r = await probeDashboard(ctx, { port: p, timeoutMs });
+    if (r.state === 'ours') return r;
+    if (r.state === 'down' && !free) free = r;
+  }
+  return free ?? { state: 'other', url: null, port: null, currentRunId: null };
 }
 
 export async function startServer(ctx, opts = {}) {

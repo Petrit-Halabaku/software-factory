@@ -1,0 +1,10 @@
+{
+  "name": "skill-finder",
+  "version": "0.1.0",
+  "description": "Answers \"how do I do X\" and \"find a skill for X\" from the skills installed here: matched by domain and task, checked to run in this environment, filtered against your constraints. You choose, then it proceeds with the skill you picked.",
+  "author": { "name": "Petrit Halabaku", "url": "https://github.com/Petrit-Halabaku" },
+  "homepage": "https://github.com/Petrit-Halabaku/software-factory",
+  "repository": "https://github.com/Petrit-Halabaku/software-factory",
+  "license": "MIT",
+  "keywords": ["skills", "discovery", "plugins", "productivity"]
+}

@@ -2,7 +2,7 @@
   "name": "software-factory",
   "owner": { "name": "Petrit Halabaku", "url": "https://github.com/Petrit-Halabaku" },
   "metadata": {
-    "description": "A Claude Code software factory: spec, build, parallel reviews, approval and merge-back with a live dashboard."
+    "description": "A Claude Code software factory (spec, build, parallel reviews, approval and merge-back with a live dashboard), and a skill finder that picks installed skills by domain and task."
   },
   "allowCrossMarketplaceDependenciesOn": ["claude-plugins-official", "karpathy-skills", "understand-anything"],
   "plugins": [
@@ -11,6 +11,12 @@
       "source": "./plugins/factory",
       "description": "/factory turns a feature request into a spec, an isolated-worktree build, four parallel reviews, an approval and an unstaged merge-back, with a live dashboard.",
       "category": "development"
+    },
+    {
+      "name": "skill-finder",
+      "source": "./plugins/skill-finder",
+      "description": "Answers \"how do I do X\" and \"find a skill for X\" from the skills installed here, checks they can run, asks you to choose, then proceeds.",
+      "category": "productivity"
     }
   ]
 }

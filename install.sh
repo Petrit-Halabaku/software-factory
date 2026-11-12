@@ -154,8 +154,14 @@ commands=$(printf '%s' "$check" | node -e '
   });') || die "the plugin check reported problems no install can fix"
 while IFS= read -r cmd; do
   [ -n "$cmd" ] || continue
+  # The check prints only "claude plugin install|enable|update ..." commands;
+  # anything else is refused. The words run as an argument list, never
+  # through a shell.
+  case "$cmd" in
+    "claude plugin install "*|"claude plugin enable "*|"claude plugin update "*) ;;
+    *) die "the plugin check printed a command this installer does not run: $cmd" ;;
+  esac
   say "plugin check: $cmd"
-  # The check prints only "claude plugin install|enable|update ..." commands.
   read -r -a words <<<"$cmd"
   "${words[@]}"
 done <<<"$commands"

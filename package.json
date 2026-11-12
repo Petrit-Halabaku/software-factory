@@ -5,6 +5,6 @@
   "license": "MIT",
   "engines": { "node": ">=20" },
   "scripts": {
-    "test": "node --test plugins/factory/test/*.test.mjs"
+    "test": "node --test plugins/*/test/*.test.mjs"
   }
 }

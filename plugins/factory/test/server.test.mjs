@@ -4,9 +4,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { request } from 'node:http';
 import path from 'node:path';
-import { createDashboard } from '../dashboard/server.mjs';
+import { createDashboard, locateDashboard, probeDashboard } from '../dashboard/server.mjs';
 import * as wf from '../lib/workflow.mjs';
 import { readBoard } from '../lib/board.mjs';
+import { repoId } from '../lib/config.mjs';
 import { makeRepo, startAndBuild } from './helpers.mjs';
 
 function get(port, p, { host = `127.0.0.1:${port}`, method = 'GET', headers = {} } = {}) {
@@ -62,6 +63,39 @@ test('serves the UI and the board on localhost, read-only, with safe errors', as
   assert.match(dl.headers['content-disposition'], /attachment; filename="spec.md"/);
   const usage = JSON.parse((await get(port, '/api/usage')).body);
   assert.equal(usage.available, false, 'no session records configured in the scratch factory');
+});
+
+test('dashboard-status tells this repository\'s dashboard from another one and from none', async (t) => {
+  const a = makeRepo({ humanChanges: false });
+  t.after(a.cleanup);
+  const b = makeRepo({ humanChanges: false });
+  t.after(b.cleanup);
+  const run = startAndBuild(wf, a.ctx).run;
+  const { server, listen } = createDashboard(a.ctx, { port: 0 });
+  const { port } = await listen();
+  let open = true;
+  t.after(() => open && server.close());
+
+  const state = JSON.parse((await get(port, '/api/state')).body);
+  assert.equal(state.repoId, repoId(a.ctx.repoDir));
+  assert.equal(state.repoId.includes('/'), false, 'no path on the wire');
+
+  const ours = await probeDashboard(a.ctx, { port });
+  assert.deepEqual(ours, { state: 'ours', url: `http://127.0.0.1:${port}/`, port, currentRunId: run.runId });
+  assert.equal((await probeDashboard(b.ctx, { port })).state, 'other', 'answers, but for another repository');
+
+  // Without a port: the configured one and the next two.
+  const onPort = (ctx, p) => ({ ...ctx, config: { ...ctx.config, dashboard: { ...ctx.config.dashboard, port: p } } });
+  assert.deepEqual(await locateDashboard(onPort(a.ctx, port)), ours, 'found on the configured port');
+  assert.deepEqual(await locateDashboard(onPort(a.ctx, port - 1)), ours, 'found on the next port, where it starts when the first is held');
+  const elsewhere = await locateDashboard(onPort(b.ctx, port));
+  assert.notEqual(elsewhere.state, 'ours');
+  assert.notEqual(elsewhere.port, port, 'another repository is never pointed at this dashboard');
+
+  await new Promise((resolve) => server.close(resolve));
+  open = false;
+  assert.equal((await probeDashboard(a.ctx, { port })).state, 'down');
+  assert.deepEqual(await locateDashboard(onPort(a.ctx, port)), { state: 'down', url: null, port, currentRunId: null }, 'nothing running: the first free port to start on, and no address to hand over');
 });
 
 test('refuses production and non-loopback binds', () => {

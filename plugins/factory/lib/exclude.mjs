@@ -6,6 +6,7 @@
 
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { readJson } from './fsutil.mjs';
 import { git, gitOut } from './git.mjs';
 
 export const BLOCK_HEADER = '# CLAUDE CODE SOFTWARE FACTORY — LOCAL ONLY';
@@ -101,4 +102,37 @@ export function checkExclusions(cwd, { links = [] } = {}) {
   for (const s of staged) problems.push(`factory file is staged: ${s}`);
 
   return { ok: problems.length === 0, problems, checks, excludeFile: file };
+}
+
+// .git/info/exclude hides factory/ from Git and from nothing else. A tool
+// that packages the working directory reads its own ignore file, so run
+// documents, patches and worktrees would travel with the package. Two such
+// tools leave a file that says they are in use here; these never block a run.
+function ignoresFactory(file) {
+  let text;
+  try {
+    text = readFileSync(file, 'utf8');
+  } catch {
+    return false;
+  }
+  return text.split('\n').map((l) => l.trim()).some((l) => {
+    if (!l || l.startsWith('#') || l.startsWith('!')) return false;
+    if (l === '*' || l === '**') return true; // an allow-list: everything is out unless re-included
+    return l.replace(/^(\*\*\/|\/)/, '').replace(/\/(\*\*?)?$/, '') === 'factory';
+  });
+}
+
+const CONTAINER_FILES = ['Dockerfile', 'Containerfile', 'docker-compose.yml', 'docker-compose.yaml', 'compose.yml', 'compose.yaml'];
+
+export function packagingWarnings(repo) {
+  const warnings = [];
+  const has = (f) => existsSync(path.join(repo, f));
+  if (CONTAINER_FILES.some(has) && !ignoresFactory(path.join(repo, '.dockerignore'))) {
+    warnings.push('a container build here would copy factory/ (run documents, patches, worktrees) into its build context; add factory/ to .dockerignore');
+  }
+  const pkg = readJson(path.join(repo, 'package.json'), null);
+  if (pkg && typeof pkg === 'object' && pkg.private !== true && !Array.isArray(pkg.files) && !ignoresFactory(path.join(repo, '.npmignore'))) {
+    warnings.push('npm publish here would include factory/: package.json is not private and has no "files" list; set "private": true, add a "files" list, or add factory/ to an existing .npmignore');
+  }
+  return warnings;
 }
